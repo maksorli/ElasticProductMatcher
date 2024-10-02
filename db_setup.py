@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 
 import psycopg2
 
-from xml_parse import parse_and_insert_xml
 
 load_dotenv()
 
@@ -30,31 +29,31 @@ create_table_query = """
 CREATE TABLE IF NOT EXISTS public.sku
 (
     uuid UUID PRIMARY KEY,
-    marketplace_id INTEGER,
-    product_id BIGINT,
+    marketplace_id INTEGER DEFAULT 0,
+    product_id BIGINT DEFAULT 0,
     title TEXT,
     description TEXT,
     brand TEXT,
-    seller_id INTEGER,
+    seller_id INTEGER  DEFAULT 0,
     seller_name TEXT,
     first_image_url TEXT,
-    category_id INTEGER,
+    category_id INTEGER  DEFAULT 0,
     category_lvl_1 TEXT,
     category_lvl_2 TEXT,
     category_lvl_3 TEXT,
     category_remaining TEXT,
     features JSON,
-    rating_count INTEGER,
-    rating_value DOUBLE PRECISION,
-    price_before_discounts REAL,
-    discount DOUBLE PRECISION,
-    price_after_discounts REAL,
-    bonuses INTEGER,
-    sales INTEGER,
+    rating_count INTEGER DEFAULT 0,
+    rating_value DOUBLE PRECISION DEFAULT 0.0,
+    price_before_discounts REAL DEFAULT 0.0,
+    discount DOUBLE PRECISION DEFAULT 0.0,
+    price_after_discounts REAL DEFAULT 0.0,
+    bonuses INTEGER DEFAULT 0,
+    sales INTEGER DEFAULT 0,
     inserted_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW(),
     currency TEXT,
-    barcode BIGINT,
+    barcode BIGINT DEFAULT 0,
     similar_sku UUID[]
 );
 """
@@ -82,8 +81,3 @@ def create_sku_table():
     except Exception as e:
         # Логируем ошибку при подключении к базе данных
         logging.error(f"Ошибка при подключении к БД: {e}")
-
-
-if __name__ == "__main__":
-    create_sku_table()
-    parse_and_insert_xml()

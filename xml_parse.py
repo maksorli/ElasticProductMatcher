@@ -3,7 +3,6 @@
 import logging
 import os
 import uuid
-from io import BufferedReader
 
 from dotenv import load_dotenv
 
@@ -33,13 +32,13 @@ DB_HOST = os.getenv("DB_HOST")
 
 # URL XML-файла
 XML_FILE_URL = (
-    "http://export.admitad.com/ru/webmaster/websites/:"
+    "http://export.admitad.com/ru/webmaster/websites/"
     "777011/products/export_adv_products/?user=bloggings"
     "_style&code=uzztv9z1ss&feed_id=21908&format=xml"
 )
 
 insert_sku_query = """
-    INSERT INTO sku (
+    INSERT INTO public.sku (
         uuid, marketplace_id, product_id, title, description, brand,
         seller_id, seller_name, first_image_url, category_id,
         category_lvl_1, category_lvl_2, category_lvl_3,
@@ -65,10 +64,7 @@ def parse_and_insert_xml():
         with requests.get(XML_FILE_URL, stream=True) as response:
             response.raise_for_status()  # Проверяем успешность запроса
             response.raw.decode_content = True
-            buffered_response = BufferedReader(response.raw)
-            context = etree.iterparse(
-                buffered_response, events=("end",), tag="offer"
-            )
+
             logging.info("получил ответ")
             # Создаем контекст для парсинга XML-файла
             context = etree.iterparse(
@@ -91,7 +87,7 @@ def parse_and_insert_xml():
                     price = float(elem.findtext("price", default=0))
                     # Генерация SKU данных
                     sku_data = (
-                        uuid.uuid4(),  # Генерируем UUID
+                        str(uuid.uuid4()),  # Генерируем UUID
                         1,  # marketplace_id
                         product_id,
                         title,
@@ -154,7 +150,3 @@ def parse_and_insert_xml():
         logging.error(f"Ошибка подключения к базе данных: {e}")
     except Exception as e:
         logging.error(f"Непредвиденная ошибка: {e}")
-
-
-if __name__ == "__main__":
-    parse_and_insert_xml()
