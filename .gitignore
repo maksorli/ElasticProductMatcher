@@ -4,7 +4,7 @@ __pycache__/
 *$py.class
 test.py
 test2.py
-same_sku.py
+ 
 # C extensions
 *.so
 

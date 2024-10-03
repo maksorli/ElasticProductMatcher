@@ -49,10 +49,10 @@ insert_sku_query = """
 """
 
 
-def parse_and_insert_xml():
+def parse_and_insert_xml(max_count=0):
     """Функция для парсинга XML-файла и вставки данных в PostgreSQL."""
     tags_count = 0
-    max_tags_count = 50
+    max_count = max_count
     try:
         # Установка соединения с базой данных
         conn = psycopg2.connect(
@@ -64,89 +64,180 @@ def parse_and_insert_xml():
         with requests.get(XML_FILE_URL, stream=True) as response:
             response.raise_for_status()  # Проверяем успешность запроса
             response.raw.decode_content = True
-
             logging.info("получил ответ")
             # Создаем контекст для парсинга XML-файла
-            context = etree.iterparse(
-                response.raw, events=("end",), tag="offer"
-            )
-            logging.info("распарсил")
-            for _, elem in context:
-                try:
-                    # Парсинг тега'offer'
-                    product_id = int(elem.get("id", 0))
-                    title = elem.findtext("name", default="")
-                    description = elem.findtext("description", default="")
-                    brand = elem.findtext("vendor", default="")
-                    category_id = int(
-                        elem.findtext("categoryId", default=None)
-                    )
-                    price_before_discounts = float(
-                        elem.findtext("oldprice", default=None)
-                    )
-                    price = float(elem.findtext("price", default=0))
-                    # Генерация SKU данных
-                    sku_data = (
-                        str(uuid.uuid4()),  # Генерируем UUID
-                        1,  # marketplace_id
-                        product_id,
-                        title,
-                        description,
-                        brand,
-                        None,  # seller_id
-                        None,  # seller_name
-                        None,  # first_image_url
-                        category_id,
-                        None,  # category_lvl_1
-                        None,  # category_lvl_2
-                        None,  # category_lvl_3
-                        None,  # category_remaining
-                        None,  # features
-                        None,  # rating_count
-                        None,  # rating_value
-                        price_before_discounts,
-                        None,  # discount
-                        price,  #
-                        None,  # bonuses
-                        None,  # sales
-                        None,  # barcode
-                        [],  # similar_sku
-                    )
+            context = etree.iterparse(response.raw, events=("start", "end"))
+            category_dict = {}
+            in_categories = False
+            in_offers = False
+            if max_count > 0:
+                logging.info(f"Начат парсинг {max_count} товаров")
+            if max_count == 0:
+                logging.info("Начат парсинг всего файла")
+            for event, elem in context:
+                if event == "start":
+                    if elem.tag == "categories":
+                        in_categories = True
+                    elif elem.tag == "offers":
+                        in_offers = True
+                elif event == "end":
+                    if elem.tag == "category" and in_categories:
+                        # Обработка категории
+                        category_id = elem.get("id")
+                        parent_id = elem.get("parentId")
+                        name = elem.text.strip() if elem.text else ""
+                        category_dict[category_id] = {
+                            "name": name,
+                            "parentId": parent_id,
+                        }
+                        elem.clear()
+                    elif elem.tag == "categories" and in_categories:
+                        in_categories = False
+                        logging.info(
+                            f"Разобрано {len(category_dict)} категорий."
+                        )
+                    elif elem.tag == "offer" and in_offers:
+                        # Обработка предложения
+                        try:
+                            # Парсинг тега 'offer'
+                            product_id = int(elem.get("id", 0))
+                            title = elem.findtext("name", default="")
+                            description = elem.findtext(
+                                "description", default=""
+                            )
+                            brand = elem.findtext("vendor", default="")
+                            category_id = elem.findtext(
+                                "categoryId", default=None
+                            )
+                            price_element = elem.find("price")
+                            if (
+                                price_element is not None
+                                and price_element.text
+                            ):
+                                price = float(price_element.text)
+                            else:
+                                price = 0.0
 
-                    # Вставка данных в базу данных
-                    execute_values(
-                        cur,
-                        insert_sku_query,
-                        [sku_data],
-                    )
+                            price_before_discounts_element = elem.find(
+                                "price_before_discounts"
+                            )
+                            if (
+                                price_before_discounts_element is not None
+                                and price_before_discounts_element.text
+                            ):
+                                price_before_discounts = float(
+                                    price_before_discounts_element.text
+                                )
+                            else:
+                                # Если нет цены до скидки, берем текущую цену
+                                price_before_discounts = price
+                            discount = None
+                            if (
+                                price
+                                and price_before_discounts
+                                and price >= price_before_discounts
+                            ):
+                                discount = (
+                                    (price_before_discounts - price)
+                                    / price_before_discounts
+                                    * 100
+                                )
+                                discount = round(discount, 2)
 
-                    # Фиксация транзакции
-                    conn.commit()
+                            # Построение пути категории
+                            category_path = []
+                            current_id = category_id
+                            while (
+                                current_id is not None
+                                and current_id in category_dict
+                            ):
+                                category_info = category_dict[current_id]
+                                category_name = category_info["name"]
+                                category_path.insert(0, category_name)
+                                current_id = category_info["parentId"]
+                            # Заполнение уровней категории
+                            category_lvl_1 = (
+                                category_path[0]
+                                if len(category_path) > 0
+                                else None
+                            )
+                            category_lvl_2 = (
+                                category_path[1]
+                                if len(category_path) > 1
+                                else None
+                            )
+                            category_lvl_3 = (
+                                category_path[2]
+                                if len(category_path) > 2
+                                else None
+                            )
+                            if len(category_path) > 3:
+                                category_remaining = "/".join(
+                                    category_path[3:]
+                                )
+                            else:
+                                category_remaining = None
 
-                    tags_count += 1
-                    if tags_count >= max_tags_count:
-                        break
+                            sku_data = (
+                                str(uuid.uuid4()),  # Генерируем UUID
+                                1,  # marketplace_id
+                                product_id,
+                                title,
+                                description,
+                                brand,
+                                None,  # seller_id
+                                None,  # seller_name
+                                None,  # first_image_url
+                                category_id,
+                                category_lvl_1,
+                                category_lvl_2,
+                                category_lvl_3,
+                                category_remaining,
+                                None,  # features
+                                None,  # rating_count
+                                None,  # rating_value
+                                price_before_discounts,
+                                discount,  # discount
+                                price,  #
+                                None,  # bonuses
+                                None,  # sales
+                                None,  # barcode
+                                [],  # similar_sku
+                            )
 
-                except Exception as e:
-                    logging.error(
-                        f"Ошибка при обработке товара {product_id}: {e}"
-                    )
+                            # Вставка данных в базу данных
+                            execute_values(
+                                cur,
+                                insert_sku_query,
+                                [sku_data],
+                            )
 
-                finally:
-                    # Очищаем элемент для освобождения памяти
-                    elem.clear()
-                    while elem.getprevious() is not None:
-                        del elem.getparent()[0]
+                            # Фиксация транзакции
+                            conn.commit()
 
-            # Закрытие курсора и соединения с базой данных
-            cur.close()
-            conn.close()
+                            tags_count += 1
+                            if max_count > 0 and tags_count >= max_count:
+                                logging.info(
+                                    f"Парсинг {max_count} товаров завершен"
+                                )
+                                break
 
-    except requests.exceptions.RequestException as e:
-        logging.error(f"Ошибка при загрузке XML: {e}")
-    except etree.XMLSyntaxError as e:
-        logging.error(f"Ошибка парсинга XML: {e}")
-    except psycopg2.DatabaseError as e:
-        logging.error(f"Ошибка подключения к базе данных: {e}")
+                        except Exception as e:
+                            logging.error(
+                                f"Ошибка  обработки товара {product_id}: {e}"
+                            )
+
+                        finally:
+                            # Очищаем элемент для освобождения памяти
+                            elem.clear()
+                            while elem.getprevious() is not None:
+                                del elem.getparent()[0]
+                    elif elem.tag == "offers" and in_offers:
+                        in_offers = False
+
+        # Закрытие курсора и соединения с базой данных
+        cur.close()
+        conn.close()
+
     except Exception as e:
-        logging.error(f"Непредвиденная ошибка: {e}")
+        logging.error(f"Ошибка при парсинге XML-файла: {e}")

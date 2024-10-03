@@ -28,34 +28,41 @@ DB_HOST = os.getenv("DB_HOST")
 create_table_query = """
 CREATE TABLE IF NOT EXISTS public.sku
 (
-    uuid UUID PRIMARY KEY,
-    marketplace_id INTEGER DEFAULT 0,
-    product_id BIGINT DEFAULT 0,
+    uuid UUID,
+    marketplace_id INTEGER,
+    product_id BIGINT,
     title TEXT,
     description TEXT,
     brand TEXT,
-    seller_id INTEGER  DEFAULT 0,
+    seller_id INTEGER,
     seller_name TEXT,
     first_image_url TEXT,
-    category_id INTEGER  DEFAULT 0,
+    category_id INTEGER,
     category_lvl_1 TEXT,
     category_lvl_2 TEXT,
     category_lvl_3 TEXT,
     category_remaining TEXT,
     features JSON,
-    rating_count INTEGER DEFAULT 0,
-    rating_value DOUBLE PRECISION DEFAULT 0.0,
-    price_before_discounts REAL DEFAULT 0.0,
-    discount DOUBLE PRECISION DEFAULT 0.0,
-    price_after_discounts REAL DEFAULT 0.0,
-    bonuses INTEGER DEFAULT 0,
-    sales INTEGER DEFAULT 0,
+    rating_count INTEGER,
+    rating_value DOUBLE PRECISION,
+    price_before_discounts REAL,
+    discount DOUBLE PRECISION,
+    price_after_discounts REAL,
+    bonuses INTEGER,
+    sales INTEGER,
     inserted_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW(),
     currency TEXT,
-    barcode BIGINT DEFAULT 0,
+    barcode BIGINT,
     similar_sku UUID[]
 );
+"""
+
+create_indexes_query = """
+CREATE INDEX sku_brand_index ON public.sku (brand);
+CREATE UNIQUE INDEX sku_marketplace_id_sku_id_uindex ON
+public.sku (marketplace_id, product_id);
+CREATE UNIQUE INDEX sku_uuid_uindex ON public.sku (uuid);
 """
 
 
@@ -72,6 +79,9 @@ def create_sku_table():
 
         # Выполнение SQL-запроса
         cur.execute(create_table_query)
+        conn.commit()
+
+        cur.execute(create_indexes_query)
         conn.commit()
 
         logging.info("Таблица SKU успешно создана!")
